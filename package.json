@@ -8,7 +8,9 @@
     "uxp:load": "cd dist && uxp plugin load",
     "uxp:reload": "cd dist && uxp plugin reload",
     "uxp:watch": "cd dist && nodemon --exec \"uxp plugin reload\" -e js,css,html",
-    "uxp:debug": "cd dist && uxp plugin debug"
+    "uxp:debug": "cd dist && uxp plugin debug",
+    "server": "node demo-server.js",
+    "dev": "nodemon demo-server.js"
   },
   "license": "none",
   "private": true,
