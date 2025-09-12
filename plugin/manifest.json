@@ -8,6 +8,20 @@
     "app": "PS",
     "minVersion": "23.0.0"
   },
+  "permissions": {
+    "webview": {
+      "allow": "yes",
+      "domains": ["http://127.0.0.1:2271"]
+    },
+    "allowCodeGenerationFromStrings": true
+  },
+  "requiredPermissions": {
+    "allowCodeGenerationFromStrings": true,
+    "launchProcess": {
+      "schemes": ["http", "https"],
+      "domains": ["127.0.0.1"]
+    }
+  },
   "entrypoints": [
     {
       "type": "panel",
