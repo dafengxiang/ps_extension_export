@@ -20,7 +20,10 @@
     "launchProcess": {
       "schemes": ["http", "https"],
       "domains": ["127.0.0.1"]
-    }
+    },
+    "allowUnsafeEval": true,
+    "clipboard": "readAndWrite",
+    "localFileSystem": "fullAccess"
   },
   "entrypoints": [
     {
