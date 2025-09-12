@@ -1,17 +1,17 @@
 import Vue from "vue";
-import hello from "./hello.vue";
+import App from "./App.vue";
 
 const { entrypoints } = require("uxp");
 
 entrypoints.setup({
   panels: {
-    helloworld: {
+    ps_export_panel: {
       show() {
         new Vue({
           el: "#container",
-          components: { hello },
+          components: { App },
           render(h) {
-            return h(hello);
+            return h(App);
           },
         });
       },

@@ -4,7 +4,7 @@
             {{ message }}
         </sp-heading>
         <sp-body>
-            button has been clicked {{ count }} times.
+            点击{{ count }} times.
         </sp-body>
             <sp-button v-on:click="increment">Click me</sp-button>
     </form>

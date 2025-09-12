@@ -1,6 +1,6 @@
 {
-  "id": "com.adobe.uxp.starter.vue",
-  "name": "UXP Vue Starter Plugin",
+  "id": "com.adobe.ps.extension.export",
+  "name": "PS Extension Export",
   "version": "1.0.0",
   "main": "index.html",
   "manifestVersion": 4,
@@ -11,9 +11,9 @@
   "entrypoints": [
     {
       "type": "panel",
-      "id": "helloworld",
+      "id": "ps_export_panel",
       "label": {
-        "default": "Hello World"
+        "default": "PS Export"
       },
       "minimumSize": { "width": 230, "height": 200 },
       "maximumSize": { "width": 2000, "height": 2000 },
