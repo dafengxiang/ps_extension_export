@@ -2,14 +2,16 @@
  * 图片处理相关工具函数
  */
 const { getLayerBounds, getSmartObjectTransform } = require('./layerUtils');
-const { exportLayerAsBase64 } = require('./exportUtils');
+const { saveLayerAsImage } = require('./exportUtils');
 
 /**
  * 获取图片信息
  * @param {Object} layer - PS图层对象
+ * @param {string} outputDir - 输出目录路径（可选）
+ * @param {string} filename - 文件名（可选）
  * @returns {Object|null} 图片信息对象
  */
-async function getImageInfo(layer) {
+async function getImageInfo(layer, outputDir = null, filename = null) {
     try {
         // 检查是否是图像图层
         if (layer.kind === 'smartObject' || layer.kind === 'normal' || layer.typename === 'ArtLayer') {
@@ -23,8 +25,8 @@ async function getImageInfo(layer) {
                 colorDepth: null,
                 colorProfile: null,
                 
-                // Base64数据
-                base64Data: null,
+                // 图片路径
+                imagePath: null,
                 mimeType: 'image/png',
                 
                 // 智能对象信息
@@ -49,12 +51,13 @@ async function getImageInfo(layer) {
                 };
             }
             
-            // 导出图层为base64
+            // 保存图片到本地并返回绝对路径
             try {
-                imageInfo.base64Data = await exportLayerAsBase64(layer);
+                imageInfo.imagePath = await saveLayerAsImage(layer, outputDir, filename);
+                console.log(`图片已保存到本地: ${imageInfo.imagePath}`);
             } catch (error) {
-                console.error("导出图层base64失败:", error);
-                imageInfo.base64Data = null;
+                console.error("保存图片到本地失败:", error);
+                imageInfo.imagePath = null;
                 imageInfo.exportError = error.message;
             }
             

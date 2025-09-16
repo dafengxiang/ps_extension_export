@@ -13,7 +13,7 @@
     <sp-body v-if="textColor"> 文本颜色: {{ textColor }} </sp-body>
     <sp-body v-if="fontFamily"> 字体: {{ fontFamily }} </sp-body>
     <sp-body v-if="isImageLayer"> 图片图层: {{ isSmartObject ? "智能对象" : "普通图像" }} </sp-body>
-    <sp-body v-if="hasBase64Data"> 图片数据: 已导出base64 ({{ base64Size }}KB) </sp-body>
+    <sp-body v-if="imagePath"> 图片已保存到: {{ imagePath }} </sp-body>
     <sp-body v-if="childrenCount > 0"> 子图层数量: {{ childrenCount }} </sp-body>
     <sp-body v-if="layerPath"> 图层路径: {{ layerPath }} </sp-body>
     <sp-body v-if="fillColor"> 填充颜色: {{ fillColor }} </sp-body>
@@ -105,10 +105,7 @@ module.exports = {
       this.fontFamily = layerInfo.textInfo?.fontFamily || "";
       this.isImageLayer = layerInfo.imageInfo?.isImage || false;
       this.isSmartObject = layerInfo.imageInfo?.isSmartObject || false;
-      this.hasBase64Data = !!layerInfo.imageInfo?.base64Data;
-      this.base64Size = layerInfo.imageInfo?.base64Data
-        ? Math.round((layerInfo.imageInfo.base64Data.length * 0.75) / 1024)
-        : 0;
+      this.imagePath = layerInfo.imageInfo?.imagePath || "";
       this.childrenCount = layerInfo.children ? layerInfo.children.length : 0;
       this.layerPath = layerInfo.hierarchy?.path || layerInfo.name;
 
@@ -340,8 +337,7 @@ module.exports = {
       strokeColor: "",
       isImageLayer: false,
       isSmartObject: false,
-      hasBase64Data: false,
-      base64Size: 0,
+      imagePath: "",
       childrenCount: 0,
       layerPath: "",
       nodeId: "",
