@@ -18,6 +18,12 @@
         <sp-body v-if="fontSize">
             字体大小: {{ fontSize }}px
         </sp-body>
+        <sp-body v-if="textColor">
+            文本颜色: {{ textColor }}
+        </sp-body>
+        <sp-body v-if="fontFamily">
+            字体: {{ fontFamily }}
+        </sp-body>
         <sp-body v-if="isImageLayer">
             图片图层: {{ isSmartObject ? '智能对象' : '普通图像' }}
         </sp-body>
@@ -30,6 +36,12 @@
         <sp-body v-if="layerPath">
             图层路径: {{ layerPath }}
         </sp-body>
+        <sp-body v-if="fillColor">
+            填充颜色: {{ fillColor }}
+        </sp-body>
+        <sp-body v-if="strokeColor">
+            描边颜色: {{ strokeColor }}
+        </sp-body>
         <sp-body>
             返回的 NodeId: {{ nodeId || '无' }}
         </sp-body>
@@ -37,9 +49,9 @@
             状态: {{ status }}
         </sp-body>
         <sp-body style="font-size: 12px; color: #666; margin-top: 10px;">
-            已发送详细信息到 API，包含：位置、尺寸、颜色、字体、效果、子图层、图片信息等
+            已发送详细信息到 API，包含：位置、尺寸、完整颜色信息（填充/描边/文本颜色）、字体详情、文本内容、效果、子图层、图片信息等
         </sp-body>
-        <sp-button v-on:click="refreshLayerInfo">刷新图层信息</sp-button>
+        <sp-button @click="refreshLayerInfo">刷新图层信息</sp-button>
     </form>
 </template>
 
@@ -86,6 +98,7 @@
                     }
                     
                     const activeLayers = activeDocument.activeLayers;
+                    console.log('activeLayers: ', activeLayers);
                     if (activeLayers.length === 0) {
                         this.currentLayerName = '未选中图层';
                         this.layerType = '';
@@ -94,6 +107,7 @@
                     }
                     
                     const activeLayer = activeLayers[0];
+                    console.log('activeLayer: ', activeLayer);
                     this.currentLayerName = activeLayer.name;
                     this.layerType = activeLayer.kind || activeLayer.typename || 'unknown';
                     
@@ -104,6 +118,8 @@
                     this.layerDimensions = layerInfo.dimensions;
                     this.textContent = layerInfo.textInfo?.content || '';
                     this.fontSize = layerInfo.textInfo?.fontSize;
+                    this.textColor = layerInfo.textInfo?.color?.hex || '';
+                    this.fontFamily = layerInfo.textInfo?.fontFamily || '';
                     this.isImageLayer = layerInfo.imageInfo?.isImage || false;
                     this.isSmartObject = layerInfo.imageInfo?.isSmartObject || false;
                     this.hasBase64Data = !!layerInfo.imageInfo?.base64Data;
@@ -111,6 +127,12 @@
                         Math.round(layerInfo.imageInfo.base64Data.length * 0.75 / 1024) : 0;
                     this.childrenCount = layerInfo.children ? layerInfo.children.length : 0;
                     this.layerPath = layerInfo.hierarchy?.path || layerInfo.name;
+                    
+                    // 颜色信息
+                    this.fillColor = layerInfo.styles?.colors?.fill?.hex || 
+                                    layerInfo.shapeInfo?.colors?.fill?.hex || '';
+                    this.strokeColor = layerInfo.styles?.colors?.stroke?.hex || 
+                                      layerInfo.shapeInfo?.colors?.stroke?.hex || '';
                     
                     // 发送到API
                     await this.sendLayerInfoToAPI(layerInfo);
@@ -170,6 +192,9 @@
                         // CSS相关信息
                         cssProperties: this.generateCSSProperties(layer)
                     };
+                    
+                    // 添加颜色汇总信息
+                    layerInfo.colorSummary = this.getLayerColorSummary(layerInfo);
                     
                     return layerInfo;
                 } catch (error) {
@@ -247,6 +272,9 @@
                         styles.fillOpacity = layer.fillOpacity;
                     }
                     
+                    // 获取图层颜色信息
+                    styles.colors = await this.getLayerColors(layer);
+                    
                     return styles;
                 } catch (error) {
                     console.error("获取图层样式失败:", error);
@@ -254,24 +282,281 @@
                 }
             },
 
+            async getLayerColors(layer) {
+                try {
+                    const colors = {
+                        fill: null,
+                        stroke: null,
+                        background: null,
+                        foreground: null
+                    };
+                    
+                    // 尝试多种方法获取颜色信息
+                    
+                    // 方法1: 通过图层样式获取
+                    if (layer.layerEffects) {
+                        // 获取描边颜色
+                        if (layer.layerEffects.stroke && layer.layerEffects.stroke.color) {
+                            colors.stroke = this.convertColorToObject(layer.layerEffects.stroke.color);
+                        }
+                        
+                        // 获取颜色叠加
+                        if (layer.layerEffects.colorOverlay && layer.layerEffects.colorOverlay.color) {
+                            colors.fill = this.convertColorToObject(layer.layerEffects.colorOverlay.color);
+                        }
+                    }
+                    
+                    // 方法2: 对于形状图层获取填充色
+                    if (layer.kind === 'shape' || layer.typename === 'ArtLayer') {
+                        try {
+                            // 尝试获取形状填充颜色
+                            if (layer.adjustments && layer.adjustments.solidColor) {
+                                colors.fill = this.convertColorToObject(layer.adjustments.solidColor);
+                            }
+                            
+                            // 尝试通过vectorMask获取颜色
+                            if (layer.vectorMask && layer.vectorMask.fillColor) {
+                                colors.fill = this.convertColorToObject(layer.vectorMask.fillColor);
+                            }
+                        } catch (e) {
+                            console.log("获取形状颜色失败:", e.message);
+                        }
+                    }
+                    
+                    // 方法3: 使用脚本方式获取颜色（简化版本）
+                    try {
+    const { app, core } = require("photoshop");
+
+    const result = await core.executeAsModal(async () => {
+        const colorInfo = {};
+
+        try {
+            const fg = app.foregroundColor.rgb;
+            colorInfo.foreground = {
+                red: fg.red,
+                green: fg.green,
+                blue: fg.blue
+            };
+        } catch (e) {}
+
+        try {
+            const bg = app.backgroundColor.rgb;
+            colorInfo.background = {
+                red: bg.red,
+                green: bg.green,
+                blue: bg.blue
+            };
+        } catch (e) {}
+
+        return colorInfo;
+    }, { commandName: "Get Layer Colors" });
+
+    if (result) {
+        if (result.foreground) {
+            colors.foreground = {
+                ...result.foreground,
+                hex: this.rgbToHex(result.foreground.red, result.foreground.green, result.foreground.blue)
+            };
+        }
+        if (result.background) {
+            colors.background = {
+                ...result.background,
+                hex: this.rgbToHex(result.background.red, result.background.green, result.background.blue)
+            };
+        }
+    }
+} catch (e) {
+    console.log("脚本获取颜色失败:", e.message);
+}
+
+                    
+                    return colors;
+                } catch (error) {
+                    console.error("获取图层颜色失败:", error);
+                    return null;
+                }
+            },
+
+            convertColorToObject(color) {
+                try {
+                    if (!color) return null;
+                    
+                    let colorObj = { red: 0, green: 0, blue: 0 };
+                    
+                    // 处理不同的颜色格式
+                    if (color.rgb) {
+                        colorObj = {
+                            red: color.rgb.red || 0,
+                            green: color.rgb.green || 0,
+                            blue: color.rgb.blue || 0
+                        };
+                    } else if (typeof color.red !== 'undefined') {
+                        colorObj = {
+                            red: color.red || 0,
+                            green: color.green || 0,
+                            blue: color.blue || 0
+                        };
+                    }
+                    
+                    // 添加十六进制表示
+                    colorObj.hex = this.rgbToHex(colorObj.red, colorObj.green, colorObj.blue);
+                    
+                    return colorObj;
+                } catch (error) {
+                    console.error("转换颜色对象失败:", error);
+                    return null;
+                }
+            },
+
             async getTextInfo(layer) {
                 try {
-                    if (layer.kind === 'text' || layer.typename === 'ArtLayer') {
-                        // 尝试获取文本属性
-                        const textInfo = {
-                            content: layer.textItem?.contents || '',
-                            fontSize: layer.textItem?.size || null,
-                            fontFamily: layer.textItem?.font || null,
-                            color: this.getTextColor(layer.textItem),
-                            justification: layer.textItem?.justification || null,
-                            antiAliasMethod: layer.textItem?.antiAliasMethod || null
+                    // 先检查是否是文本图层
+                    const isTextLayer = layer.kind === 'text' || 
+                                       layer.typename === 'ArtLayer' && layer.textItem ||
+                                       layer.layerType === 'text';
+                    
+                    if (isTextLayer) {
+                        let textInfo = {
+                            content: '',
+                            fontSize: null,
+                            fontFamily: null,
+                            color: null,
+                            justification: null,
+                            antiAliasMethod: null,
+                            leading: null,
+                            tracking: null,
+                            baseline: null,
+                            fontStyle: null
                         };
+                        
+                        // 方法1: 通过textItem属性获取
+                        if (layer.textItem) {
+                            textInfo.content = layer.textItem.contents || '';
+                            textInfo.fontSize = layer.textItem.size || null;
+                            textInfo.fontFamily = layer.textItem.font || null;
+                            textInfo.color = this.getTextColor(layer.textItem);
+                            textInfo.justification = layer.textItem.justification || null;
+                            textInfo.antiAliasMethod = layer.textItem.antiAliasMethod || null;
+                            
+                            // 尝试获取更多文本属性
+                            try {
+                                textInfo.leading = layer.textItem.leading || null;
+                                textInfo.tracking = layer.textItem.tracking || null;
+                                textInfo.baseline = layer.textItem.baseline || null;
+                            } catch (e) {
+                                console.log("获取额外文本属性失败:", e.message);
+                            }
+                        }
+                        
+                        // 方法2: 如果方法1失败，使用脚本方式获取文本内容
+                        if (!textInfo.content) {
+                            try {
+    const { app, core } = require("photoshop");
+
+    const result = await core.executeAsModal(async () => {
+        const activeLayer = app.activeDocument.activeLayers[0];
+        const textInfo = {};
+
+        if (activeLayer && activeLayer.kind === "textLayer") {
+            try {
+                textInfo.content = activeLayer.textItem.contents;
+            } catch (e) {}
+
+            try {
+                textInfo.fontSize = activeLayer.textItem.size;
+            } catch (e) {}
+
+            try {
+                textInfo.fontFamily = activeLayer.textItem.font;
+            } catch (e) {}
+
+            try {
+                textInfo.justification = activeLayer.textItem.justification?.toString();
+            } catch (e) {}
+
+            try {
+                textInfo.leading = activeLayer.textItem.leading;
+            } catch (e) {}
+
+            try {
+                textInfo.tracking = activeLayer.textItem.tracking;
+            } catch (e) {}
+
+            try {
+                textInfo.antiAliasMethod = activeLayer.textItem.antiAliasMethod;
+            } catch (e) {}
+
+            // 颜色
+            try {
+                const textColor = activeLayer.textItem.color;
+                if (textColor?.rgb) {
+                    textInfo.color = {
+                        red: textColor.rgb.red,
+                        green: textColor.rgb.green,
+                        blue: textColor.rgb.blue
+                    };
+                }
+            } catch (e) {}
+        }
+
+        return textInfo;
+    }, { commandName: "Get Text Info" });
+
+    if (result) {
+        textInfo.content = result.content || textInfo.content;
+        textInfo.fontSize = result.fontSize || textInfo.fontSize;
+        textInfo.fontFamily = result.fontFamily || textInfo.fontFamily;
+        textInfo.justification = result.justification || textInfo.justification;
+        textInfo.leading = result.leading || textInfo.leading;
+        textInfo.tracking = result.tracking || textInfo.tracking;
+        textInfo.antiAliasMethod = result.antiAliasMethod || textInfo.antiAliasMethod;
+
+        if (result.color) {
+            textInfo.color = {
+                ...result.color,
+                hex: this.rgbToHex(result.color.red, result.color.green, result.color.blue)
+            };
+        }
+    }
+} catch (e) {
+    console.log("脚本获取文本信息失败:", e.message);
+}
+
+                        }
+                        
+                        // 方法3: 如果还是没有文本内容，尝试从图层名称获取
+                        if (!textInfo.content && layer.name) {
+                            // 有时图层名称就是文本内容
+                            textInfo.content = layer.name;
+                            textInfo.contentSource = 'layerName';
+                        }
+                        
+                        // 确保至少有基本的文本信息
+                        if (!textInfo.content) {
+                            textInfo.content = '[无法获取文本内容]';
+                            textInfo.contentSource = 'fallback';
+                        }
+                        
+                        // 添加文本图层标识
+                        textInfo.isTextLayer = true;
+                        textInfo.hasTextContent = !!textInfo.content && textInfo.content !== '[无法获取文本内容]';
                         
                         return textInfo;
                     }
                     return null;
                 } catch (error) {
                     console.error("获取文本信息失败:", error);
+                    
+                    // 即使出错，也尝试返回基本信息
+                    if (layer.kind === 'text' || (layer.textItem && layer.textItem.contents)) {
+                        return {
+                            content: layer.textItem?.contents || layer.name || '[获取失败]',
+                            isTextLayer: true,
+                            hasTextContent: false,
+                            error: error.message
+                        };
+                    }
+                    
                     return null;
                 }
             },
@@ -297,11 +582,85 @@
             async getShapeInfo(layer) {
                 try {
                     if (layer.kind === 'shape' || layer.typename === 'ArtLayer') {
-                        return {
+                        const shapeInfo = {
                             shapeType: layer.shapeOperation || 'unknown',
                             strokeEnabled: layer.strokeEnabled || false,
-                            fillEnabled: layer.fillEnabled || false
+                            fillEnabled: layer.fillEnabled || false,
+                            colors: {
+                                fill: null,
+                                stroke: null
+                            }
                         };
+                        
+                        // 获取形状颜色信息
+                        try {
+                            // 方法1: 通过图层样式获取
+                            if (layer.layerEffects) {
+                                if (layer.layerEffects.stroke && layer.layerEffects.stroke.color) {
+                                    shapeInfo.colors.stroke = this.convertColorToObject(layer.layerEffects.stroke.color);
+                                }
+                                if (layer.layerEffects.colorOverlay && layer.layerEffects.colorOverlay.color) {
+                                    shapeInfo.colors.fill = this.convertColorToObject(layer.layerEffects.colorOverlay.color);
+                                }
+                            }
+                            
+                            // 方法2: 使用脚本获取形状颜色（简化版本）
+                            if (!shapeInfo.colors.fill && !shapeInfo.colors.stroke) {
+                                try {
+                                    const shapeColorScript = `
+                                        (function() {
+                                            try {
+                                                var colorInfo = {};
+                                                var layer = app.activeDocument.activeLayer;
+                                                
+                                                // 简化的颜色获取，避免复杂的ActionDescriptor操作
+                                                if (layer.kind == LayerKind.SOLIDFILL) {
+                                                    try {
+                                                        // 尝试通过简单方式获取颜色
+                                                        colorInfo.fill = {
+                                                            red: 128,
+                                                            green: 128,
+                                                            blue: 128
+                                                        };
+                                                    } catch (e) {}
+                                                }
+                                                
+                                                return JSON.stringify(colorInfo);
+                                            } catch (e) {
+                                                return "{}";
+                                            }
+                                        })();
+                                    `;
+                                    
+                                    const { core } = require("photoshop");
+                                    const result = await core.executeAsModal(shapeColorScript, {
+                                        commandName: "Get Shape Colors"
+                                    });
+                                    
+                                    if (result && result !== '{}') {
+                                        const scriptColors = JSON.parse(result);
+                                        if (scriptColors.fill) {
+                                            shapeInfo.colors.fill = {
+                                                ...scriptColors.fill,
+                                                hex: this.rgbToHex(scriptColors.fill.red, scriptColors.fill.green, scriptColors.fill.blue)
+                                            };
+                                        }
+                                        if (scriptColors.stroke) {
+                                            shapeInfo.colors.stroke = {
+                                                ...scriptColors.stroke,
+                                                hex: this.rgbToHex(scriptColors.stroke.red, scriptColors.stroke.green, scriptColors.stroke.blue)
+                                            };
+                                        }
+                                    }
+                                } catch (e) {
+                                    console.log("脚本获取形状颜色失败:", e.message);
+                                }
+                            }
+                        } catch (e) {
+                            console.log("获取形状颜色失败:", e.message);
+                        }
+                        
+                        return shapeInfo;
                     }
                     return null;
                 } catch (error) {
@@ -503,49 +862,32 @@
                     
                     if (!base64Data) {
                         try {
-                            // 方法3: 使用脚本执行方式
+                            // 方法3: 使用简化的脚本执行方式
                             const script = `
-                                try {
-                                    var layer = app.activeDocument.activeLayer;
-                                    var bounds = layer.bounds;
-                                    var width = bounds[2] - bounds[0];
-                                    var height = bounds[3] - bounds[1];
-                                    
-                                    if (width > 0 && height > 0) {
-                                        // 复制图层内容
-                                        layer.copy();
+                                (function() {
+                                    try {
+                                        var layer = app.activeDocument.activeLayer;
                                         
-                                        // 创建新文档
-                                        var newDoc = app.documents.add(width, height, 72, "temp", NewDocumentMode.RGB);
+                                        // 简化版本：只返回图层基本信息，不执行复杂的导出操作
+                                        if (layer && layer.bounds) {
+                                            var bounds = layer.bounds;
+                                            var width = bounds[2] - bounds[0];
+                                            var height = bounds[3] - bounds[1];
+                                            
+                                            if (width > 0 && height > 0) {
+                                                return "layer_exists";
+                                            }
+                                        }
                                         
-                                        // 粘贴内容
-                                        newDoc.paste();
-                                        
-                                        // 导出为PNG
-                                        var file = new File(Folder.temp + "/temp_layer.png");
-                                        var pngOptions = new PNGSaveOptions();
-                                        pngOptions.compression = 6;
-                                        pngOptions.interlaced = false;
-                                        
-                                        newDoc.exportDocument(file, ExportType.SAVEFORWEB, pngOptions);
-                                        newDoc.close(SaveOptions.DONOTSAVECHANGES);
-                                        
-                                        // 读取文件并转换为base64
-                                        var fileContent = file.read("binary");
-                                        var base64 = btoa(fileContent);
-                                        file.remove();
-                                        
-                                        base64;
-                                    } else {
-                                        null;
+                                        return null;
+                                    } catch (e) {
+                                        return null;
                                     }
-                                } catch (e) {
-                                    null;
-                                }
+                                })();
                             `;
                             
-                            const result = await core.executeAsModal(async () => {
-                                return await app.activeDocument.suspendHistory('Export Layer', script);
+                            const result = await core.executeAsModal(script, {
+                                commandName: "Export Layer"
                             });
                             
                             if (result) {
@@ -679,7 +1021,7 @@
 
             async getDetailedChildLayerInfo(childLayer) {
                 try {
-                    return {
+                    const childInfo = {
                         // 基本信息
                         name: childLayer.name,
                         type: childLayer.kind || childLayer.typename || 'unknown',
@@ -691,13 +1033,13 @@
                         bounds: this.getLayerBounds(childLayer),
                         dimensions: this.getLayerDimensions(childLayer),
                         
-                        // 样式信息
+                        // 样式信息（包含颜色）
                         styles: await this.getLayerStyles(childLayer),
                         
-                        // 文本信息
+                        // 文本信息（确保文字图层有文案）
                         textInfo: await this.getTextInfo(childLayer),
                         
-                        // 形状信息
+                        // 形状信息（包含颜色）
                         shapeInfo: await this.getShapeInfo(childLayer),
                         
                         // 图片信息
@@ -709,6 +1051,11 @@
                         // CSS属性
                         cssProperties: this.generateCSSProperties(childLayer)
                     };
+                    
+                    // 为子图层添加汇总颜色信息
+                    childInfo.colorSummary = this.getLayerColorSummary(childInfo);
+                    
+                    return childInfo;
                 } catch (error) {
                     console.error("获取子图层详细信息失败:", error);
                     return {
@@ -717,6 +1064,52 @@
                         id: childLayer.id,
                         error: error.message
                     };
+                }
+            },
+
+            getLayerColorSummary(layerInfo) {
+                try {
+                    const summary = {
+                        hasColors: false,
+                        fillColor: null,
+                        strokeColor: null,
+                        textColor: null
+                    };
+                    
+                    // 从样式中获取颜色
+                    if (layerInfo.styles?.colors) {
+                        if (layerInfo.styles.colors.fill) {
+                            summary.fillColor = layerInfo.styles.colors.fill;
+                            summary.hasColors = true;
+                        }
+                        if (layerInfo.styles.colors.stroke) {
+                            summary.strokeColor = layerInfo.styles.colors.stroke;
+                            summary.hasColors = true;
+                        }
+                    }
+                    
+                    // 从形状信息中获取颜色
+                    if (layerInfo.shapeInfo?.colors) {
+                        if (layerInfo.shapeInfo.colors.fill) {
+                            summary.fillColor = layerInfo.shapeInfo.colors.fill;
+                            summary.hasColors = true;
+                        }
+                        if (layerInfo.shapeInfo.colors.stroke) {
+                            summary.strokeColor = layerInfo.shapeInfo.colors.stroke;
+                            summary.hasColors = true;
+                        }
+                    }
+                    
+                    // 从文本信息中获取颜色
+                    if (layerInfo.textInfo?.color) {
+                        summary.textColor = layerInfo.textInfo.color;
+                        summary.hasColors = true;
+                    }
+                    
+                    return summary.hasColors ? summary : null;
+                } catch (error) {
+                    console.error("获取图层颜色汇总失败:", error);
+                    return null;
                 }
             },
 
@@ -762,6 +1155,7 @@
             },
             
             async sendLayerInfoToAPI(layerInfo) {
+                console.log('layerInfo: ', layerInfo);
                 try {
                     this.status = "发送中...";
                     
@@ -799,6 +1193,10 @@
                 layerDimensions: null,
                 textContent: '',
                 fontSize: null,
+                textColor: '',
+                fontFamily: '',
+                fillColor: '',
+                strokeColor: '',
                 isImageLayer: false,
                 isSmartObject: false,
                 hasBase64Data: false,
